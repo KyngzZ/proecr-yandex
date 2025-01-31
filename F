@@ -1,0 +1,197 @@
+import pygame
+import random
+
+pygame.init()
+
+WIDTH, HEIGHT = pygame.display.Info().current_w, pygame.display.Info().current_h
+screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.FULLSCREEN)
+pygame.display.set_caption("Кооперативная арена")
+clock = pygame.time.Clock()
+
+font = pygame.font.Font(None, 74)
+button_font = pygame.font.Font(None, 36)
+
+class Player(pygame.sprite.Sprite):
+    def __init__(self, color, controls):
+        super().__init__()
+        self.image = pygame.Surface((50, 50))
+        self.image.fill(color)
+        self.rect = self.image.get_rect(center=(WIDTH // 2, HEIGHT - 100))
+        self.health = 100
+        self.controls = controls
+
+    def update(self):
+        if not self.is_alive():
+            return  # Если мертв, не обновляем движение
+
+        keys = pygame.key.get_pressed()
+        dx, dy = 0, 0
+        if keys[self.controls['UP']]:
+            dy = -5
+        if keys[self.controls['DOWN']]:
+            dy = 5
+        if keys[self.controls['LEFT']]:
+            dx = -5
+        if keys[self.controls['RIGHT']]:
+            dx = 5
+
+        self.rect.x += dx
+        if pygame.sprite.spritecollideany(self, blocks):
+            self.rect.x -= dx
+        self.rect.y += dy
+        if pygame.sprite.spritecollideany(self, blocks):
+            self.rect.y -= dy
+
+    def shoot(self):
+        if self.is_alive():  # Проверяем, жив ли игрок
+            projectile = Projectile(self.rect.centerx, self.rect.top)
+            all_sprites.add(projectile)
+            projectiles.add(projectile)
+
+    def draw_health(self):
+        if self.health > 0:
+            health_ratio = self.health / 100
+            pygame.draw.rect(screen, (255, 0, 0), (self.rect.centerx - 25, self.rect.top - 10, 50, 5))
+            pygame.draw.rect(screen, (0, 255, 0), (self.rect.centerx - 25, self.rect.top - 10, 50 * health_ratio, 5))
+
+    def is_alive(self):
+        return self.health > 0
+
+
+class Enemy(pygame.sprite.Sprite):
+    def __init__(self):
+        super().__init__()
+        self.image = pygame.Surface((40, 40))
+        self.image.fill((255, 0, 0))
+        self.rect = self.image.get_rect()
+        self.health = 50
+        self.last_attack_time = pygame.time.get_ticks()
+        self.place_enemy()
+
+    def place_enemy(self):
+        while True:
+            self.rect.x = random.randint(50, WIDTH - 90)
+            self.rect.y = random.randint(50, HEIGHT // 2)
+            if not pygame.sprite.spritecollideany(self, enemies):  # Проверка на пересечение
+                break
+
+    def update(self):
+        def distance_squared(rect1, rect2):
+            dx = rect1.centerx - rect2.centerx
+            dy = rect1.centery - rect2.centery
+            return dx ** 2 + dy ** 2
+
+        target = min(
+            (player1, player2),
+            key=lambda p: distance_squared(self.rect, p.rect) if p.is_alive() else float('inf')
+        )
+
+        if target.is_alive():
+            if self.rect.x < target.rect.x:
+                self.rect.x += 2
+            elif self.rect.x > target.rect.x:
+                self.rect.x -= 2
+            if self.rect.y < target.rect.y:
+                self.rect.y += 2
+            elif self.rect.y > target.rect.y:
+                self.rect.y -= 2
+
+        if pygame.sprite.spritecollideany(self, blocks) or pygame.sprite.spritecollideany(self, enemies):
+            self.rect.x -= 2
+            self.rect.y -= 2
+
+        if pygame.sprite.collide_rect(self, target):
+            current_time = pygame.time.get_ticks()
+            if current_time - self.last_attack_time > 1000:
+                target.health -= 10
+                self.last_attack_time = current_time
+
+
+class Projectile(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        super().__init__()
+        self.image = pygame.Surface((5, 10))
+        self.image.fill((255, 255, 0))
+        self.rect = self.image.get_rect()
+        self.rect.center = (x, y)
+
+    def update(self):
+        self.rect.y -= 7
+        if self.rect.bottom < 0 or pygame.sprite.spritecollideany(self, blocks):
+            self.kill()
+
+
+def main():
+    global all_sprites, projectiles, blocks, player1, player2, enemies
+
+    wave = 1
+    player1_controls = {'UP': pygame.K_w, 'DOWN': pygame.K_s, 'LEFT': pygame.K_a, 'RIGHT': pygame.K_d, 'SHOOT': pygame.K_SPACE}
+    player2_controls = {'UP': pygame.K_UP, 'DOWN': pygame.K_DOWN, 'LEFT': pygame.K_LEFT, 'RIGHT': pygame.K_RIGHT, 'SHOOT': pygame.K_RETURN}
+
+    def setup_wave(wave):
+        global all_sprites, enemies
+        all_sprites = pygame.sprite.Group()
+        blocks = pygame.sprite.Group()
+        global player1, player2
+        player1 = Player((0, 255, 0), player1_controls)
+        player2 = Player((0, 0, 255), player2_controls)
+        all_sprites.add(player1, player2)
+        enemies = pygame.sprite.Group()
+        for _ in range(wave * 5):
+            enemy = Enemy()
+            all_sprites.add(enemy)
+            enemies.add(enemy)
+        return enemies
+
+    enemies = setup_wave(wave)
+    projectiles = pygame.sprite.Group()
+    running, game_over = True, False
+
+    while running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+
+        if not game_over:
+            all_sprites.update()
+            keys = pygame.key.get_pressed()
+
+            if keys[player1.controls['SHOOT']]:
+                player1.shoot()
+            if keys[player2.controls['SHOOT']]:
+                player2.shoot()
+
+            for projectile in projectiles:
+                hit_enemies = pygame.sprite.spritecollide(projectile, enemies, False)
+                for enemy in hit_enemies:
+                    enemy.health -= 10
+                    projectile.kill()
+                    if enemy.health <= 0:
+                        enemy.kill()
+
+            if not player1.is_alive():
+                player1.kill()
+            if not player2.is_alive():
+                player2.kill()
+
+            if not player1.is_alive() and not player2.is_alive():
+                game_over = True
+
+            screen.fill((0, 0, 0))
+            all_sprites.draw(screen)
+            pygame.display.flip()
+            clock.tick(60)
+
+        else:
+            screen.fill((0, 0, 0))
+            game_over_text = font.render("Game Over", True, (255, 0, 0))
+            screen.blit(game_over_text, (WIDTH // 2 - 100, HEIGHT // 2 - 20))
+            pygame.display.flip()
+            pygame.time.wait(2000)
+            running = False
+
+    pygame.quit()
+
+
+if __name__ == "__main__":
+    main()

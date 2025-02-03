@@ -1,6 +1,7 @@
 import pygame
 import sqlite3
 import random
+import os
 
 pygame.init()
 
@@ -17,8 +18,14 @@ button_font = pygame.font.Font(None, 36)
 class Block(pygame.sprite.Sprite):
     def __init__(self, x, y, width, height):
         super().__init__()
-        self.image = pygame.Surface((width, height))
-        self.image.fill((128, 128, 128))
+        # Попытка загрузить изображение текстуры разрушенных домов
+        try:
+            image = pygame.image.load("ruined_house.png").convert_alpha()
+            self.image = pygame.transform.scale(image, (width, height))
+        except Exception as e:
+            print("Ошибка загрузки текстуры, используется заливка:", e)
+            self.image = pygame.Surface((width, height))
+            self.image.fill((128, 128, 128))
         self.rect = self.image.get_rect(topleft=(x, y))
 
 class Portal(pygame.sprite.Sprite):
@@ -153,21 +160,22 @@ class Projectile(pygame.sprite.Sprite):
         self.image.fill((255, 255, 0))
         self.rect = self.image.get_rect()
         self.rect.center = (x, y)
-        self.shooter = shooter  # Сохраняем, кто выстрелил
+        self.shooter = shooter  # Хранит ссылку на игрока, который сделал выстрел
 
     def update(self):
         self.rect.y -= 7
         if self.rect.bottom < 0 or pygame.sprite.spritecollideany(self, blocks):
             self.kill()
 
-# --- Функция игры ---
+# --- Функции игры и меню ---
+
 def game():
     global all_sprites, projectiles, blocks, player1, player2, portal, wave, enemies, boss
     wave = 1
     portal = None
     boss = None
 
-    # Определяем управление игроков
+    # Управление игроков
     player1_controls = {'UP': pygame.K_w, 'DOWN': pygame.K_s, 'LEFT': pygame.K_a, 'RIGHT': pygame.K_d, 'SHOOT': pygame.K_SPACE}
     player2_controls = {'UP': pygame.K_UP, 'DOWN': pygame.K_DOWN, 'LEFT': pygame.K_LEFT, 'RIGHT': pygame.K_RIGHT, 'SHOOT': pygame.K_RETURN}
 
@@ -177,7 +185,7 @@ def game():
         blocks = pygame.sprite.Group()
         player1 = Player((0, 255, 0), player1_controls)
         player2 = Player((0, 0, 255), player2_controls)
-        # Размещаем игроков (можно настроить стартовые позиции)
+        # Устанавливаем стартовые позиции игроков
         player1.rect.center = (WIDTH // 4, HEIGHT - 100)
         player2.rect.center = (WIDTH * 3 // 4, HEIGHT - 100)
         all_sprites.add(player1, player2)
@@ -220,7 +228,6 @@ def game():
                     projectile.kill()
                     if enemy.health <= 0:
                         enemy.kill()
-                        # Увеличиваем счёт игрока, который сделал выстрел
                         projectile.shooter.kills += 1
 
             if not player1.is_alive():
@@ -235,19 +242,17 @@ def game():
                 if wave < 5 and portal is None:
                     portal = Portal(WIDTH // 2, HEIGHT // 2)
                     all_sprites.add(portal)
-                elif wave == 5 and boss is None:  # На 5-й волне появляется босс
+                elif wave == 5 and boss is None:
                     boss = Boss()
                     all_sprites.add(boss)
                     enemies.add(boss)
 
-            # Если игрок касается портала – запускаем новую волну
             if portal and (pygame.sprite.collide_rect(player1, portal) or pygame.sprite.collide_rect(player2, portal)):
                 portal.kill()
                 portal = None
                 wave += 1
                 enemies = setup_wave(wave)
 
-            # Отрисовка
             screen.fill((0, 0, 0))
             all_sprites.draw(screen)
             if player1.is_alive():
@@ -261,7 +266,6 @@ def game():
             clock.tick(60)
 
         else:
-            # Экран Game Over
             screen.fill((0, 0, 0))
             game_over_text = font.render("Game Over", True, (255, 0, 0))
             text_rect = game_over_text.get_rect(center=(WIDTH / 2, HEIGHT / 2 - 20))
@@ -277,12 +281,11 @@ def game():
                 restart_game = True
                 running = False
 
-    # --- Сохранение результата в базу данных ---
+    # Сохранение результата в базу данных
     try:
         conn = sqlite3.connect("highscores.db")
         c = conn.cursor()
         c.execute("CREATE TABLE IF NOT EXISTS scores (id INTEGER PRIMARY KEY, wave INTEGER, kills1 INTEGER, kills2 INTEGER)")
-        # Считаем, что игроки прожили (wave - 1) волн
         current_wave = wave - 1
         p1_kills = getattr(player1, 'kills', 0)
         p2_kills = getattr(player2, 'kills', 0)
@@ -293,14 +296,11 @@ def game():
         print("Error saving score:", e)
 
     if restart_game:
-        game()  # Запускаем игру заново
+        game()
     else:
-        main_menu()  # После игры возвращаемся в главное меню
-
-# --- Меню и экран лучшего счёта ---
+        main_menu()
 
 def show_best_score():
-    # Подключаемся к базе и получаем лучший результат
     try:
         conn = sqlite3.connect("highscores.db")
         c = conn.cursor()
@@ -342,8 +342,53 @@ def show_best_score():
         pygame.display.flip()
         clock.tick(60)
 
+def battlefield_description():
+    """
+    Экран с описанием поля битвы, где сообщается, что действие происходит
+    на заброшенной территории с остатками разрушенных домов.
+    """
+    running = True
+    # Текст описания
+    description_lines = [
+        "Битва проходит на заброшенной территории,",
+        "где остатки старых разрушенных домов",
+        "создают укрытия для бойцов.",
+        "Осторожно – за каждым углом может скрываться опасность!",
+    ]
+    # Определяем кнопку для начала битвы
+    start_button_rect = pygame.Rect(WIDTH // 2 - 150, HEIGHT - 150, 300, 50)
+    while running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                return
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                mouse_pos = event.pos
+                if start_button_rect.collidepoint(mouse_pos):
+                    running = False
+
+        screen.fill((20, 20, 20))
+        title = font.render("Поле битвы", True, (255, 255, 255))
+        title_rect = title.get_rect(center=(WIDTH // 2, HEIGHT // 4))
+        screen.blit(title, title_rect)
+
+        # Отрисовка текста описания
+        for i, line in enumerate(description_lines):
+            line_surf = button_font.render(line, True, (200, 200, 200))
+            line_rect = line_surf.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 50 + i * 40))
+            screen.blit(line_surf, line_rect)
+
+        # Рисуем кнопку "Начать битву"
+        pygame.draw.rect(screen, (255, 255, 255), start_button_rect)
+        button_text = button_font.render("Начать битву", True, (0, 0, 0))
+        button_text_rect = button_text.get_rect(center=start_button_rect.center)
+        screen.blit(button_text, button_text_rect)
+
+        pygame.display.flip()
+        clock.tick(60)
+
 def main_menu():
-    # Пытаемся загрузить фоновое изображение (background.jpg)
+    # Загрузка фонового изображения для меню (опционально)
     try:
         bg = pygame.image.load("background.jpg")
         bg = pygame.transform.scale(bg, (WIDTH, HEIGHT))
@@ -353,7 +398,6 @@ def main_menu():
 
     running = True
     while running:
-        # Задаём размеры кнопок
         play_button_rect = pygame.Rect(WIDTH // 2 - 100, HEIGHT // 2 - 60, 200, 50)
         score_button_rect = pygame.Rect(WIDTH // 2 - 100, HEIGHT // 2, 200, 50)
         exit_button_rect = pygame.Rect(WIDTH // 2 - 100, HEIGHT // 2 + 60, 200, 50)
@@ -366,25 +410,24 @@ def main_menu():
             if event.type == pygame.MOUSEBUTTONDOWN:
                 mouse_pos = event.pos
                 if play_button_rect.collidepoint(mouse_pos):
-                    game()  # Начинаем игру
+                    # Сначала показываем экран описания поля битвы, затем игру
+                    battlefield_description()
+                    game()
                 elif score_button_rect.collidepoint(mouse_pos):
                     show_best_score()
                 elif exit_button_rect.collidepoint(mouse_pos):
                     pygame.quit()
                     return
 
-        # Отрисовка фона
         if bg:
             screen.blit(bg, (0, 0))
         else:
             screen.fill((0, 0, 0))
 
-        # Отрисовка заголовка
         title_text = font.render("Кооперативная арена", True, (255, 255, 255))
         title_rect = title_text.get_rect(center=(WIDTH // 2, HEIGHT // 4))
         screen.blit(title_text, title_rect)
 
-        # Рисуем кнопки
         pygame.draw.rect(screen, (255, 255, 255), play_button_rect)
         pygame.draw.rect(screen, (255, 255, 255), score_button_rect)
         pygame.draw.rect(screen, (255, 255, 255), exit_button_rect)

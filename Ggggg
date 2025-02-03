@@ -175,6 +175,14 @@ def game():
     portal = None
     boss = None
 
+    # Загружаем фоновое изображение для игры
+    try:
+        game_bg = pygame.image.load("game_background.jpg").convert()
+        game_bg = pygame.transform.scale(game_bg, (WIDTH, HEIGHT))
+    except Exception as e:
+        print("Фоновое изображение игры не найдено, используется plain background.", e)
+        game_bg = None
+
     # Управление игроков
     player1_controls = {'UP': pygame.K_w, 'DOWN': pygame.K_s, 'LEFT': pygame.K_a, 'RIGHT': pygame.K_d, 'SHOOT': pygame.K_SPACE}
     player2_controls = {'UP': pygame.K_UP, 'DOWN': pygame.K_DOWN, 'LEFT': pygame.K_LEFT, 'RIGHT': pygame.K_RIGHT, 'SHOOT': pygame.K_RETURN}
@@ -253,7 +261,11 @@ def game():
                 wave += 1
                 enemies = setup_wave(wave)
 
-            screen.fill((0, 0, 0))
+            # Отрисовка: сначала фон, затем все игровые объекты
+            if game_bg:
+                screen.blit(game_bg, (0, 0))
+            else:
+                screen.fill((0, 0, 0))
             all_sprites.draw(screen)
             if player1.is_alive():
                 player1.draw_health()
@@ -266,6 +278,7 @@ def game():
             clock.tick(60)
 
         else:
+            # Экран Game Over
             screen.fill((0, 0, 0))
             game_over_text = font.render("Game Over", True, (255, 0, 0))
             text_rect = game_over_text.get_rect(center=(WIDTH / 2, HEIGHT / 2 - 20))
@@ -348,14 +361,12 @@ def battlefield_description():
     на заброшенной территории с остатками разрушенных домов.
     """
     running = True
-    # Текст описания
     description_lines = [
         "Битва проходит на заброшенной территории,",
         "где остатки старых разрушенных домов",
         "создают укрытия для бойцов.",
         "Осторожно – за каждым углом может скрываться опасность!",
     ]
-    # Определяем кнопку для начала битвы
     start_button_rect = pygame.Rect(WIDTH // 2 - 150, HEIGHT - 150, 300, 50)
     while running:
         for event in pygame.event.get():
@@ -372,13 +383,11 @@ def battlefield_description():
         title_rect = title.get_rect(center=(WIDTH // 2, HEIGHT // 4))
         screen.blit(title, title_rect)
 
-        # Отрисовка текста описания
         for i, line in enumerate(description_lines):
             line_surf = button_font.render(line, True, (200, 200, 200))
             line_rect = line_surf.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 50 + i * 40))
             screen.blit(line_surf, line_rect)
 
-        # Рисуем кнопку "Начать битву"
         pygame.draw.rect(screen, (255, 255, 255), start_button_rect)
         button_text = button_font.render("Начать битву", True, (0, 0, 0))
         button_text_rect = button_text.get_rect(center=start_button_rect.center)
@@ -388,7 +397,6 @@ def battlefield_description():
         clock.tick(60)
 
 def main_menu():
-    # Загрузка фонового изображения для меню (опционально)
     try:
         bg = pygame.image.load("background.jpg")
         bg = pygame.transform.scale(bg, (WIDTH, HEIGHT))
@@ -410,7 +418,6 @@ def main_menu():
             if event.type == pygame.MOUSEBUTTONDOWN:
                 mouse_pos = event.pos
                 if play_button_rect.collidepoint(mouse_pos):
-                    # Сначала показываем экран описания поля битвы, затем игру
                     battlefield_description()
                     game()
                 elif score_button_rect.collidepoint(mouse_pos):

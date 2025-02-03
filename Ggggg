@@ -12,6 +12,8 @@ clock = pygame.time.Clock()
 font = pygame.font.Font(None, 74)
 button_font = pygame.font.Font(None, 36)
 
+# --- Классы игры ---
+
 class Block(pygame.sprite.Sprite):
     def __init__(self, x, y, width, height):
         super().__init__()
@@ -35,6 +37,7 @@ class Player(pygame.sprite.Sprite):
         self.health = 100
         self.resources = 5
         self.controls = controls
+        self.kills = 0  # Счётчик убийств игрока
 
     def update(self):
         keys = pygame.key.get_pressed()
@@ -56,7 +59,7 @@ class Player(pygame.sprite.Sprite):
             self.rect.y -= dy
 
     def shoot(self):
-        projectile = Projectile(self.rect.centerx, self.rect.top)
+        projectile = Projectile(self.rect.centerx, self.rect.top, self)
         all_sprites.add(projectile)
         projectiles.add(projectile)
 
@@ -144,57 +147,63 @@ class BlackHole(pygame.sprite.Sprite):
                 player.kill()
 
 class Projectile(pygame.sprite.Sprite):
-    def __init__(self, x, y):
+    def __init__(self, x, y, shooter):
         super().__init__()
         self.image = pygame.Surface((5, 10))
         self.image.fill((255, 255, 0))
         self.rect = self.image.get_rect()
         self.rect.center = (x, y)
+        self.shooter = shooter  # Сохраняем, кто выстрелил
 
     def update(self):
         self.rect.y -= 7
         if self.rect.bottom < 0 or pygame.sprite.spritecollideany(self, blocks):
             self.kill()
 
-def main():
-    global all_sprites, projectiles, blocks, player1, player2, portal
+# --- Функция игры ---
+def game():
+    global all_sprites, projectiles, blocks, player1, player2, portal, wave, enemies, boss
     wave = 1
     portal = None
     boss = None
 
+    # Определяем управление игроков
     player1_controls = {'UP': pygame.K_w, 'DOWN': pygame.K_s, 'LEFT': pygame.K_a, 'RIGHT': pygame.K_d, 'SHOOT': pygame.K_SPACE}
     player2_controls = {'UP': pygame.K_UP, 'DOWN': pygame.K_DOWN, 'LEFT': pygame.K_LEFT, 'RIGHT': pygame.K_RIGHT, 'SHOOT': pygame.K_RETURN}
 
     def setup_wave(wave):
-        global all_sprites, blocks, portal
+        global all_sprites, blocks, player1, player2
         all_sprites = pygame.sprite.Group()
         blocks = pygame.sprite.Group()
-        global player1, player2
         player1 = Player((0, 255, 0), player1_controls)
         player2 = Player((0, 0, 255), player2_controls)
+        # Размещаем игроков (можно настроить стартовые позиции)
+        player1.rect.center = (WIDTH // 4, HEIGHT - 100)
+        player2.rect.center = (WIDTH * 3 // 4, HEIGHT - 100)
         all_sprites.add(player1, player2)
-        enemies = pygame.sprite.Group()
+        enemies_group = pygame.sprite.Group()
         for _ in range(wave * 5):
             enemy = Enemy()
             all_sprites.add(enemy)
-            enemies.add(enemy)
+            enemies_group.add(enemy)
         for i in range(5):
             block = Block(random.randint(0, WIDTH - 100), random.randint(0, HEIGHT - 100), 100, 50)
             blocks.add(block)
             all_sprites.add(block)
-
-        return enemies
+        return enemies_group
 
     enemies = setup_wave(wave)
-
     projectiles = pygame.sprite.Group()
     running = True
     restart_game = False
     game_over = False
+
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                running = False
+                pygame.quit()
+                return
+
         if not game_over:
             all_sprites.update()
             keys = pygame.key.get_pressed()
@@ -202,6 +211,8 @@ def main():
                 player1.shoot()
             if keys[player2.controls['SHOOT']]:
                 player2.shoot()
+
+            # Обработка столкновений снарядов с врагами
             for projectile in projectiles:
                 hit_enemies = pygame.sprite.spritecollide(projectile, enemies, False)
                 for enemy in hit_enemies:
@@ -209,12 +220,17 @@ def main():
                     projectile.kill()
                     if enemy.health <= 0:
                         enemy.kill()
+                        # Увеличиваем счёт игрока, который сделал выстрел
+                        projectile.shooter.kills += 1
+
             if not player1.is_alive():
                 player1.kill()
             if not player2.is_alive():
                 player2.kill()
             if not player1.is_alive() and not player2.is_alive():
                 game_over = True
+
+            # Если враги побеждены – создаём портал или вызываем босса
             if len(enemies) == 0:
                 if wave < 5 and portal is None:
                     portal = Portal(WIDTH // 2, HEIGHT // 2)
@@ -223,18 +239,21 @@ def main():
                     boss = Boss()
                     all_sprites.add(boss)
                     enemies.add(boss)
+
+            # Если игрок касается портала – запускаем новую волну
             if portal and (pygame.sprite.collide_rect(player1, portal) or pygame.sprite.collide_rect(player2, portal)):
                 portal.kill()
                 portal = None
                 wave += 1
                 enemies = setup_wave(wave)
+
+            # Отрисовка
             screen.fill((0, 0, 0))
             all_sprites.draw(screen)
             if player1.is_alive():
                 player1.draw_health()
             if player2.is_alive():
                 player2.draw_health()
-
             if boss and boss.alive():
                 boss.draw_health()
 
@@ -242,26 +261,143 @@ def main():
             clock.tick(60)
 
         else:
-                screen.fill((0, 0, 0))
-                game_over_text = font.render("Game Over", True, (255, 0, 0))
-                text_rect = game_over_text.get_rect(center=(WIDTH / 2, HEIGHT / 2 - 20))
-                screen.blit(game_over_text, text_rect)
+            # Экран Game Over
+            screen.fill((0, 0, 0))
+            game_over_text = font.render("Game Over", True, (255, 0, 0))
+            text_rect = game_over_text.get_rect(center=(WIDTH / 2, HEIGHT / 2 - 20))
+            screen.blit(game_over_text, text_rect)
 
-                restart_text = button_font.render("Нажмите 'R', чтобы играть заново", True, (255, 255, 255))
-                restart_rect = restart_text.get_rect(center=(WIDTH / 2, HEIGHT / 2 + 30))
-                screen.blit(restart_text, restart_rect)
+            restart_text = button_font.render("Нажмите 'R', чтобы играть заново", True, (255, 255, 255))
+            restart_rect = restart_text.get_rect(center=(WIDTH / 2, HEIGHT / 2 + 30))
+            screen.blit(restart_text, restart_rect)
 
-                pygame.display.flip()
-                keys = pygame.key.get_pressed()
-                if keys[pygame.K_r]:
-                    restart_game = True
-                    running = False
+            pygame.display.flip()
+            keys = pygame.key.get_pressed()
+            if keys[pygame.K_r]:
+                restart_game = True
+                running = False
 
+    # --- Сохранение результата в базу данных ---
+    try:
+        conn = sqlite3.connect("highscores.db")
+        c = conn.cursor()
+        c.execute("CREATE TABLE IF NOT EXISTS scores (id INTEGER PRIMARY KEY, wave INTEGER, kills1 INTEGER, kills2 INTEGER)")
+        # Считаем, что игроки прожили (wave - 1) волн
+        current_wave = wave - 1
+        p1_kills = getattr(player1, 'kills', 0)
+        p2_kills = getattr(player2, 'kills', 0)
+        c.execute("INSERT INTO scores (wave, kills1, kills2) VALUES (?, ?, ?)", (current_wave, p1_kills, p2_kills))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print("Error saving score:", e)
 
     if restart_game:
-        main()
+        game()  # Запускаем игру заново
     else:
-        pygame.quit()
+        main_menu()  # После игры возвращаемся в главное меню
+
+# --- Меню и экран лучшего счёта ---
+
+def show_best_score():
+    # Подключаемся к базе и получаем лучший результат
+    try:
+        conn = sqlite3.connect("highscores.db")
+        c = conn.cursor()
+        c.execute("CREATE TABLE IF NOT EXISTS scores (id INTEGER PRIMARY KEY, wave INTEGER, kills1 INTEGER, kills2 INTEGER)")
+        c.execute("SELECT wave, kills1, kills2 FROM scores ORDER BY wave DESC, (kills1 + kills2) DESC LIMIT 1")
+        result = c.fetchone()
+        conn.close()
+    except Exception as e:
+        print("Error loading score:", e)
+        result = None
+
+    running = True
+    while running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                return
+            if event.type == pygame.KEYDOWN:
+                if event.key in (pygame.K_ESCAPE, pygame.K_RETURN):
+                    running = False
+
+        screen.fill((0, 0, 0))
+        title = font.render("Лучший счёт", True, (255, 255, 255))
+        title_rect = title.get_rect(center=(WIDTH // 2, HEIGHT // 4))
+        screen.blit(title, title_rect)
+
+        if result:
+            wave_score, kills1, kills2 = result
+            score_text = button_font.render(f"Волны: {wave_score}, Убийств P1: {kills1}, Убийств P2: {kills2}", True, (255, 255, 255))
+        else:
+            score_text = button_font.render("Нет записей", True, (255, 255, 255))
+        score_rect = score_text.get_rect(center=(WIDTH // 2, HEIGHT // 2))
+        screen.blit(score_text, score_rect)
+
+        instruction_text = button_font.render("Нажмите Enter или Esc, чтобы вернуться", True, (255, 255, 255))
+        instruction_rect = instruction_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 50))
+        screen.blit(instruction_text, instruction_rect)
+
+        pygame.display.flip()
+        clock.tick(60)
+
+def main_menu():
+    # Пытаемся загрузить фоновое изображение (background.jpg)
+    try:
+        bg = pygame.image.load("background.jpg")
+        bg = pygame.transform.scale(bg, (WIDTH, HEIGHT))
+    except Exception as e:
+        print("Background image not found, using plain background.", e)
+        bg = None
+
+    running = True
+    while running:
+        # Задаём размеры кнопок
+        play_button_rect = pygame.Rect(WIDTH // 2 - 100, HEIGHT // 2 - 60, 200, 50)
+        score_button_rect = pygame.Rect(WIDTH // 2 - 100, HEIGHT // 2, 200, 50)
+        exit_button_rect = pygame.Rect(WIDTH // 2 - 100, HEIGHT // 2 + 60, 200, 50)
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                return
+
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                mouse_pos = event.pos
+                if play_button_rect.collidepoint(mouse_pos):
+                    game()  # Начинаем игру
+                elif score_button_rect.collidepoint(mouse_pos):
+                    show_best_score()
+                elif exit_button_rect.collidepoint(mouse_pos):
+                    pygame.quit()
+                    return
+
+        # Отрисовка фона
+        if bg:
+            screen.blit(bg, (0, 0))
+        else:
+            screen.fill((0, 0, 0))
+
+        # Отрисовка заголовка
+        title_text = font.render("Кооперативная арена", True, (255, 255, 255))
+        title_rect = title_text.get_rect(center=(WIDTH // 2, HEIGHT // 4))
+        screen.blit(title_text, title_rect)
+
+        # Рисуем кнопки
+        pygame.draw.rect(screen, (255, 255, 255), play_button_rect)
+        pygame.draw.rect(screen, (255, 255, 255), score_button_rect)
+        pygame.draw.rect(screen, (255, 255, 255), exit_button_rect)
+
+        play_text = button_font.render("Играть", True, (0, 0, 0))
+        score_text = button_font.render("Лучший счёт", True, (0, 0, 0))
+        exit_text = button_font.render("Выйти", True, (0, 0, 0))
+        screen.blit(play_text, play_text.get_rect(center=play_button_rect.center))
+        screen.blit(score_text, score_text.get_rect(center=score_button_rect.center))
+        screen.blit(exit_text, exit_text.get_rect(center=exit_button_rect.center))
+
+        pygame.display.flip()
+        clock.tick(60)
 
 if __name__ == "__main__":
-    main()
+    main_menu()

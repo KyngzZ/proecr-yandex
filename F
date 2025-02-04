@@ -88,6 +88,7 @@ class Player(pygame.sprite.Sprite):
     def is_alive(self):
         return self.health > 0
 
+
 class Enemy(pygame.sprite.Sprite):
     def __init__(self):
         super().__init__()
@@ -104,11 +105,15 @@ class Enemy(pygame.sprite.Sprite):
         self.health = 50
         self.last_attack_time = pygame.time.get_ticks()
 
+    def is_alive(self):
+        return self.health > 0
+
     def update(self):
         def distance_squared(rect1, rect2):
             dx = rect1.centerx - rect2.centerx
             dy = rect1.centery - rect2.centery
             return dx ** 2 + dy ** 2
+
         target = min(
             (player1, player2),
             key=lambda p: distance_squared(self.rect, p.rect) if p.is_alive() else float('inf')
@@ -719,5 +724,3 @@ def main_menu():
 
 if __name__ == "__main__":
     main_menu()
-
-

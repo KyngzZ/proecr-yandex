@@ -1,0 +1,135 @@
+def game():
+    global all_sprites, projectiles, blocks, player1, player2, portal, wave, enemies, boss, game_bg, current_wave, teleported
+    wave = 1
+    current_wave = wave
+    portal = None
+    boss = None
+    teleported = False
+
+    try:
+        game_bg = pygame.image.load("game_background.jpg").convert()
+        game_bg = pygame.transform.scale(game_bg, (WIDTH, HEIGHT))
+    except Exception as e:
+        print("Фоновое изображение игры не найдено, используется plain background.", e)
+        game_bg = None
+
+    global player1_controls, player2_controls
+    player1_controls = {'UP': pygame.K_w, 'DOWN': pygame.K_s, 'LEFT': pygame.K_a, 'RIGHT': pygame.K_d, 'SHOOT': pygame.K_SPACE}
+    player2_controls = {'UP': pygame.K_UP, 'DOWN': pygame.K_DOWN, 'LEFT': pygame.K_LEFT, 'RIGHT': pygame.K_RIGHT, 'SHOOT': pygame.K_RETURN}
+
+    enemies = setup_wave(wave)
+    projectiles = pygame.sprite.Group()
+    running = True
+    game_over = False
+
+    while running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                return
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    pause_menu()
+
+        if not game_over:
+            all_sprites.update()
+            keys = pygame.key.get_pressed()
+            # Проверяем, жив ли игрок, прежде чем позволить ему стрелять:
+            if player1.is_alive() and keys[player1.controls['SHOOT']]:
+                player1.shoot()
+            if player2.is_alive() and keys[player2.controls['SHOOT']]:
+                player2.shoot()
+
+            for projectile in projectiles:
+                hit_enemies = pygame.sprite.spritecollide(projectile, enemies, False)
+                for enemy in hit_enemies:
+                    enemy.health -= 10
+                    projectile.kill()
+                    if enemy.health <= 0:
+                        enemy.kill()
+                        projectile.shooter.kills += 1
+
+            if not player1.is_alive():
+                player1.kill()
+            if not player2.is_alive():
+                player2.kill()
+            if not player1.is_alive() and not player2.is_alive():
+                game_over = True
+
+            # Логика появления врагов, портала и боссов:
+            if len(enemies) == 0:
+                if wave < 5:
+                    # Волны 1-4: если врагов нет, появляется портал
+                    if portal is None:
+                        portal = Portal(WIDTH//2, HEIGHT//2)
+                        all_sprites.add(portal)
+                elif wave == 5:
+                    # Волна 5: до телепортации появляется первый босс
+                    if not teleported:
+                        if boss is None:
+                            boss = Boss()
+                            all_sprites.add(boss)
+                            enemies.add(boss)
+                    # Если первый босс погиб, оставляем только портал
+                    if boss is not None and not boss.is_alive():
+                        boss = None
+                        if portal is None:
+                            portal = Portal(WIDTH//2, HEIGHT//2)
+                            all_sprites.add(portal)
+                elif wave >= 6 and wave < 10:
+                    # Волны 6-9: если врагов нет, появляется портал
+                    if portal is None:
+                        portal = Portal(WIDTH//2, HEIGHT//2)
+                        all_sprites.add(portal)
+                elif wave >= 10:
+                    # Волна 10 и выше: появляется второй босс
+                    if boss is None:
+                        boss = Boss2()
+                        all_sprites.add(boss)
+                        enemies.add(boss)
+
+            # Переход через портал
+            if portal and (pygame.sprite.collide_rect(player1, portal) or pygame.sprite.collide_rect(player2, portal)):
+                portal.kill()
+                portal = None
+                wave += 1
+                current_wave = wave
+                enemies = setup_wave(wave, location="default" if not teleported else "new")
+
+            # Если второй босс (Boss2) погиб, запускаем финальную последовательность
+            if boss and isinstance(boss, Boss2) and not boss.is_alive():
+                end_sequence()
+                return
+
+            if game_bg:
+                screen.blit(game_bg, (0, 0))
+            else:
+                screen.fill((0, 0, 0))
+            all_sprites.draw(screen)
+            if player1.is_alive():
+                player1.draw_health()
+            if player2.is_alive():
+                player2.draw_health()
+            if boss and hasattr(boss, "draw_health"):
+                boss.draw_health()
+
+            pygame.display.flip()
+            clock.tick(60)
+        else:
+            death_screen()
+            return
+
+    try:
+        conn = sqlite3.connect("highscores.db")
+        c = conn.cursor()
+        c.execute("CREATE TABLE IF NOT EXISTS scores (id INTEGER PRIMARY KEY, wave INTEGER, kills1 INTEGER, kills2 INTEGER)")
+        current_wave_saved = wave - 1
+        p1_kills = getattr(player1, 'kills', 0)
+        p2_kills = getattr(player2, 'kills', 0)
+        c.execute("INSERT INTO scores (wave, kills1, kills2) VALUES (?, ?, ?)", (current_wave_saved, p1_kills, p2_kills))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print("Error saving score:", e)
+
+    main_menu()

@@ -14,7 +14,7 @@ clock = pygame.time.Clock()
 font = pygame.font.Font(None, 74)
 button_font = pygame.font.Font(None, 36)
 
-# Глобальная переменная для телепортации (переход после босса 1)
+# Глобальная переменная для телепортации (устанавливается после прохождения волны 5)
 teleported = False
 
 # --- Классы игры ---
@@ -73,9 +73,11 @@ class Player(pygame.sprite.Sprite):
             self.rect.y -= dy
 
     def shoot(self):
-        projectile = Projectile(self.rect.centerx, self.rect.top, self)
-        all_sprites.add(projectile)
-        projectiles.add(projectile)
+        # Если игрок жив, разрешаем стрельбу
+        if self.is_alive():
+            projectile = Projectile(self.rect.centerx, self.rect.top, self)
+            all_sprites.add(projectile)
+            projectiles.add(projectile)
 
     def draw_health(self):
         if self.health > 0:
@@ -212,7 +214,7 @@ class Boss2(pygame.sprite.Sprite):
         pygame.draw.rect(screen, (0, 255, 0), (WIDTH // 2 - 150, 20, 300 * health_ratio, 20))
 
 class BlackHole(pygame.sprite.Sprite):
-    # Для телепортации игроков (после Boss1)
+    # После смерти первого босса, портал для телепортации
     def __init__(self, x, y):
         super().__init__()
         self.image = pygame.Surface((100, 100), pygame.SRCALPHA)
@@ -259,16 +261,13 @@ def setup_wave(wave, location="default"):
         enemy = Enemy()
         all_sprites.add(enemy)
         enemies_group.add(enemy)
-    # Создаем блоки, избегая наложения на игроков и (если существует) портал
+    # Генерация блоков без наложения на игроков и портал (если он есть)
     for i in range(5):
         placed = False
         attempts = 0
         while not placed and attempts < 100:
             x = random.randint(0, WIDTH - 100)
-            if location == "default":
-                y = random.randint(0, HEIGHT - 100)
-            else:
-                y = random.randint(100, HEIGHT - 200)
+            y = random.randint(0, HEIGHT - 100) if location == "default" else random.randint(100, HEIGHT - 200)
             block = Block(x, y, 100, 50)
             collides = False
             for sprite in [player1, player2]:
@@ -500,9 +499,9 @@ def game():
         if not game_over:
             all_sprites.update()
             keys = pygame.key.get_pressed()
-            if keys[player1.controls['SHOOT']]:
+            if player1.is_alive() and keys[player1.controls['SHOOT']]:
                 player1.shoot()
-            if keys[player2.controls['SHOOT']]:
+            if player2.is_alive() and keys[player2.controls['SHOOT']]:
                 player2.shoot()
 
             for projectile in projectiles:
@@ -521,28 +520,35 @@ def game():
             if not player1.is_alive() and not player2.is_alive():
                 game_over = True
 
-            # Логика волн:
+            # Логика волн
             if len(enemies) == 0:
-                if wave < 5:
-                    if portal is None:
-                        portal = Portal(WIDTH//2, HEIGHT//2)
-                        all_sprites.add(portal)
-                elif wave == 5:
-                    if boss is None:
-                        boss = Boss()
-                        all_sprites.add(boss)
-                        enemies.add(boss)
-                elif wave >= 6 and wave < 10:
-                    if portal is None:
-                        portal = Portal(WIDTH//2, HEIGHT//2)
-                        all_sprites.add(portal)
-                elif wave >= 10:
-                    if boss is None:
-                        boss = Boss2()
-                        all_sprites.add(boss)
-                        enemies.add(boss)
+                if not teleported:  # до телепортации
+                    if wave < 5:
+                        if portal is None:
+                            portal = Portal(WIDTH//2, HEIGHT//2)
+                            all_sprites.add(portal)
+                    elif wave == 5:
+                        if boss is None:
+                            boss = Boss()
+                            all_sprites.add(boss)
+                            enemies.add(boss)
+                        elif boss is not None and not boss.is_alive():
+                            boss = None
+                            if portal is None:
+                                portal = Portal(WIDTH//2, HEIGHT//2)
+                                all_sprites.add(portal)
+                else:  # после телепортации
+                    if wave < 10:
+                        if portal is None:
+                            portal = Portal(WIDTH//2, HEIGHT//2)
+                            all_sprites.add(portal)
+                    elif wave >= 10:
+                        if boss is None:
+                            boss = Boss2()
+                            all_sprites.add(boss)
+                            enemies.add(boss)
 
-            # Если игрок касается портала – переходим к следующей волне
+            # Переход через портал
             if portal and (pygame.sprite.collide_rect(player1, portal) or pygame.sprite.collide_rect(player2, portal)):
                 portal.kill()
                 portal = None
@@ -550,15 +556,15 @@ def game():
                 current_wave = wave
                 enemies = setup_wave(wave, location="default" if not teleported else "new")
 
-            # Если первый босс (Boss) на волне 5 погиб
-            if boss and isinstance(boss, Boss) and not boss.alive() and wave == 5:
+            # Если первый босс (Boss) погиб (волна 5) – оставляем только портал
+            if boss and isinstance(boss, Boss) and not boss.is_alive() and wave == 5:
                 boss = None
                 if portal is None:
                     portal = Portal(WIDTH//2, HEIGHT//2)
                     all_sprites.add(portal)
 
-            # Если второй босс (Boss2) погиб, запускаем финальную последовательность
-            if boss and isinstance(boss, Boss2) and not boss.alive():
+            # Если второй босс (Boss2) погиб – запускаем финальную последовательность
+            if boss and isinstance(boss, Boss2) and not boss.is_alive():
                 end_sequence()
                 return
 
@@ -713,4 +719,5 @@ def main_menu():
 
 if __name__ == "__main__":
     main_menu()
+
 

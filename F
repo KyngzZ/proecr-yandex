@@ -14,7 +14,7 @@ clock = pygame.time.Clock()
 font = pygame.font.Font(None, 74)
 button_font = pygame.font.Font(None, 36)
 
-# Глобальные переменные для телепортации
+# Глобальная переменная для телепортации (переход после босса 1)
 teleported = False
 
 # --- Классы игры ---
@@ -212,7 +212,7 @@ class Boss2(pygame.sprite.Sprite):
         pygame.draw.rect(screen, (0, 255, 0), (WIDTH // 2 - 150, 20, 300 * health_ratio, 20))
 
 class BlackHole(pygame.sprite.Sprite):
-    # Для телепортации игроков
+    # Для телепортации игроков (после Boss1)
     def __init__(self, x, y):
         super().__init__()
         self.image = pygame.Surface((100, 100), pygame.SRCALPHA)
@@ -244,6 +244,7 @@ def setup_wave(wave, location="default"):
     global all_sprites, blocks, player1, player2
     all_sprites = pygame.sprite.Group()
     blocks = pygame.sprite.Group()
+    # Создаем игроков
     player1 = Player("player1.png", (0, 255, 0), player1_controls)
     player2 = Player("player2.png", (0, 0, 255), player2_controls)
     if location == "default":
@@ -258,12 +259,31 @@ def setup_wave(wave, location="default"):
         enemy = Enemy()
         all_sprites.add(enemy)
         enemies_group.add(enemy)
+    # Создаем блоки, избегая наложения на игроков и (если существует) портал
     for i in range(5):
-        x = random.randint(0, WIDTH - 100)
-        y = random.randint(0, HEIGHT - 100) if location == "default" else random.randint(100, HEIGHT - 200)
-        block = Block(x, y, 100, 50)
-        blocks.add(block)
-        all_sprites.add(block)
+        placed = False
+        attempts = 0
+        while not placed and attempts < 100:
+            x = random.randint(0, WIDTH - 100)
+            if location == "default":
+                y = random.randint(0, HEIGHT - 100)
+            else:
+                y = random.randint(100, HEIGHT - 200)
+            block = Block(x, y, 100, 50)
+            collides = False
+            for sprite in [player1, player2]:
+                if block.rect.colliderect(sprite.rect):
+                    collides = True
+                    break
+            if 'portal' in globals() and portal is not None:
+                if block.rect.colliderect(portal.rect):
+                    collides = True
+            if not collides:
+                placed = True
+            attempts += 1
+        if placed:
+            blocks.add(block)
+            all_sprites.add(block)
     return enemies_group
 
 def teleport_players():
@@ -276,12 +296,10 @@ def teleport_players():
     except Exception as e:
         print("Новый фон не найден, используется plain background.", e)
         game_bg = None
-    current_wave = wave + 1
+    current_wave = wave + 1  # следующая волна
     wave = current_wave
     new_enemies = setup_wave(current_wave, location="new")
     return new_enemies
-
-# --- Функция загрузочного экрана ---
 
 def loading_screen():
     progress = 0
@@ -307,8 +325,6 @@ def loading_screen():
         screen.blit(loading_text, text_rect)
         pygame.display.flip()
         clock.tick(60)
-
-# --- Функция паузы ---
 
 def pause_menu():
     paused = True
@@ -337,7 +353,29 @@ def pause_menu():
         pygame.display.flip()
         clock.tick(60)
 
-# --- Функция финальной последовательности ---
+def death_screen():
+    waiting = True
+    while waiting:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                return
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_r:
+                    game()
+                    return
+                elif event.key == pygame.K_m:
+                    main_menu()
+                    return
+        screen.fill((0, 0, 0))
+        death_text = font.render("ПОМЕР", True, (255, 0, 0))
+        death_rect = death_text.get_rect(center=(WIDTH//2, HEIGHT//2 - 100))
+        screen.blit(death_text, death_rect)
+        option_text = button_font.render("Нажмите R для перезапуска или M для меню", True, (255, 255, 255))
+        option_rect = option_text.get_rect(center=(WIDTH//2, HEIGHT//2))
+        screen.blit(option_text, option_rect)
+        pygame.display.flip()
+        clock.tick(60)
 
 def end_sequence():
     global player1, player2, wave
@@ -357,7 +395,6 @@ def end_sequence():
             pygame.draw.circle(screen, color, (x, y), radius)
         pygame.display.flip()
         clock.tick(60)
-
     door_rect = pygame.Rect(WIDTH//2 - 100, HEIGHT//2 - 150, 200, 300)
     door_entered = False
     while not door_entered:
@@ -375,7 +412,6 @@ def end_sequence():
         screen.blit(text, text_rect)
         pygame.display.flip()
         clock.tick(60)
-
     scroll_text_lines = [
         "Создатель: kyng. zZ",
         "Спасибо за игру!",
@@ -407,7 +443,6 @@ def end_sequence():
         if y + (len(scroll_text_lines)-1)*80 > HEIGHT - 50:
             pygame.time.delay(2000)
             done_scrolling = True
-
     waiting = True
     while waiting:
         for event in pygame.event.get():
@@ -435,7 +470,7 @@ def game():
     current_wave = wave
     portal = None
     boss = None
-    teleported = False  # Сброс перед началом игры
+    teleported = False
 
     try:
         game_bg = pygame.image.load("game_background.jpg").convert()
@@ -451,7 +486,6 @@ def game():
     enemies = setup_wave(wave)
     projectiles = pygame.sprite.Group()
     running = True
-    restart_game = False
     game_over = False
 
     while running:
@@ -487,26 +521,28 @@ def game():
             if not player1.is_alive() and not player2.is_alive():
                 game_over = True
 
-            # Если врагов нет:
+            # Логика волн:
             if len(enemies) == 0:
-                # Если волна меньше 5 или (после телепортации и волна меньше 10)
-                if (wave < 5) or (teleported and wave < 10):
+                if wave < 5:
                     if portal is None:
                         portal = Portal(WIDTH//2, HEIGHT//2)
                         all_sprites.add(portal)
-                elif wave == 5 and not teleported:
+                elif wave == 5:
                     if boss is None:
                         boss = Boss()
                         all_sprites.add(boss)
                         enemies.add(boss)
-                # Появление второго босса на волне 10 и выше
+                elif wave >= 6 and wave < 10:
+                    if portal is None:
+                        portal = Portal(WIDTH//2, HEIGHT//2)
+                        all_sprites.add(portal)
                 elif wave >= 10:
                     if boss is None:
                         boss = Boss2()
                         all_sprites.add(boss)
                         enemies.add(boss)
 
-            # Если игрок касается портала:
+            # Если игрок касается портала – переходим к следующей волне
             if portal and (pygame.sprite.collide_rect(player1, portal) or pygame.sprite.collide_rect(player2, portal)):
                 portal.kill()
                 portal = None
@@ -514,13 +550,14 @@ def game():
                 current_wave = wave
                 enemies = setup_wave(wave, location="default" if not teleported else "new")
 
-            # Если первый босс (волна 5) погиб: – спавним портал (если ещё не создан)
-            if boss and isinstance(boss, Boss) and not boss.alive() and wave == 5 and not teleported:
+            # Если первый босс (Boss) на волне 5 погиб
+            if boss and isinstance(boss, Boss) and not boss.alive() and wave == 5:
                 boss = None
                 if portal is None:
                     portal = Portal(WIDTH//2, HEIGHT//2)
                     all_sprites.add(portal)
-            # Если второй босс (Boss2) погиб:
+
+            # Если второй босс (Boss2) погиб, запускаем финальную последовательность
             if boss and isinstance(boss, Boss2) and not boss.alive():
                 end_sequence()
                 return
@@ -539,10 +576,9 @@ def game():
 
             pygame.display.flip()
             clock.tick(60)
-
         else:
-            # Экран смерти с надписью "ПОМЕР" и двумя кнопками: "Играть заново" и "Меню"
             death_screen()
+            return
 
     try:
         conn = sqlite3.connect("highscores.db")
@@ -557,35 +593,7 @@ def game():
     except Exception as e:
         print("Error saving score:", e)
 
-    if restart_game:
-        game()
-    else:
-        main_menu()
-
-def death_screen():
-    """Экран смерти с надписью 'ПОМЕР' и кнопками: 'Играть заново' (R) и 'Меню' (M)."""
-    waiting = True
-    while waiting:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                return
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_r:
-                    game()
-                    return
-                elif event.key == pygame.K_m:
-                    main_menu()
-                    return
-        screen.fill((0, 0, 0))
-        death_text = font.render("ПОМЕР", True, (255, 0, 0))
-        death_rect = death_text.get_rect(center=(WIDTH//2, HEIGHT//2 - 100))
-        screen.blit(death_text, death_rect)
-        option_text = button_font.render("Нажмите R для перезапуска или M для меню", True, (255, 255, 255))
-        option_rect = option_text.get_rect(center=(WIDTH//2, HEIGHT//2))
-        screen.blit(option_text, option_rect)
-        pygame.display.flip()
-        clock.tick(60)
+    main_menu()
 
 def show_best_score():
     try:
@@ -677,7 +685,7 @@ def main_menu():
                 mouse_pos = event.pos
                 if play_button_rect.collidepoint(mouse_pos):
                     battlefield_description()
-                    loading_screen()  # Экран загрузки
+                    loading_screen()
                     game()
                 elif score_button_rect.collidepoint(mouse_pos):
                     show_best_score()
@@ -705,3 +713,4 @@ def main_menu():
 
 if __name__ == "__main__":
     main_menu()
+

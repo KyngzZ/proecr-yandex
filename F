@@ -130,6 +130,7 @@ class Enemy(pygame.sprite.Sprite):
                 self.last_attack_time = current_time
 
 class Boss(Enemy):
+    # Первый босс (волна 5)
     def __init__(self):
         super().__init__()
         try:
@@ -156,6 +157,7 @@ class Boss(Enemy):
             self.last_attack_time = current_time
 
 class Boss2Bullet(pygame.sprite.Sprite):
+    # Пуля второго босса
     def __init__(self, x, y, dx, dy):
         super().__init__()
         self.image = pygame.Surface((8, 8))
@@ -173,6 +175,7 @@ class Boss2Bullet(pygame.sprite.Sprite):
             self.kill()
 
 class Boss2(pygame.sprite.Sprite):
+    # Второй босс (волна 10 и выше)
     def __init__(self):
         super().__init__()
         try:
@@ -209,6 +212,7 @@ class Boss2(pygame.sprite.Sprite):
         pygame.draw.rect(screen, (0, 255, 0), (WIDTH // 2 - 150, 20, 300 * health_ratio, 20))
 
 class BlackHole(pygame.sprite.Sprite):
+    # Для телепортации игроков
     def __init__(self, x, y):
         super().__init__()
         self.image = pygame.Surface((100, 100), pygame.SRCALPHA)
@@ -272,7 +276,7 @@ def teleport_players():
     except Exception as e:
         print("Новый фон не найден, используется plain background.", e)
         game_bg = None
-    current_wave = wave + 1  # продолжаем с следующей волной (например, волна 6)
+    current_wave = wave + 1
     wave = current_wave
     new_enemies = setup_wave(current_wave, location="new")
     return new_enemies
@@ -426,11 +430,12 @@ def end_sequence():
 # --- Основная функция игры ---
 
 def game():
-    global all_sprites, projectiles, blocks, player1, player2, portal, wave, enemies, boss, game_bg, current_wave
+    global all_sprites, projectiles, blocks, player1, player2, portal, wave, enemies, boss, game_bg, current_wave, teleported
     wave = 1
     current_wave = wave
     portal = None
     boss = None
+    teleported = False  # Сброс перед началом игры
 
     try:
         game_bg = pygame.image.load("game_background.jpg").convert()
@@ -454,7 +459,6 @@ def game():
             if event.type == pygame.QUIT:
                 pygame.quit()
                 return
-            # При нажатии ESC вызываем меню паузы
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     pause_menu()
@@ -483,7 +487,9 @@ def game():
             if not player1.is_alive() and not player2.is_alive():
                 game_over = True
 
+            # Если врагов нет:
             if len(enemies) == 0:
+                # Если волна меньше 5 или (после телепортации и волна меньше 10)
                 if (wave < 5) or (teleported and wave < 10):
                     if portal is None:
                         portal = Portal(WIDTH//2, HEIGHT//2)
@@ -493,12 +499,14 @@ def game():
                         boss = Boss()
                         all_sprites.add(boss)
                         enemies.add(boss)
-                elif wave == 10:
+                # Появление второго босса на волне 10 и выше
+                elif wave >= 10:
                     if boss is None:
                         boss = Boss2()
                         all_sprites.add(boss)
                         enemies.add(boss)
 
+            # Если игрок касается портала:
             if portal and (pygame.sprite.collide_rect(player1, portal) or pygame.sprite.collide_rect(player2, portal)):
                 portal.kill()
                 portal = None
@@ -506,10 +514,13 @@ def game():
                 current_wave = wave
                 enemies = setup_wave(wave, location="default" if not teleported else "new")
 
-            # Если босс (на волне 5) побеждён и телепортация ещё не произошла, сразу вызываем телепортацию
-            if boss and not boss.alive() and wave == 5 and not teleported:
-                enemies = teleport_players()
-
+            # Если первый босс (волна 5) погиб: – спавним портал (если ещё не создан)
+            if boss and isinstance(boss, Boss) and not boss.alive() and wave == 5 and not teleported:
+                boss = None
+                if portal is None:
+                    portal = Portal(WIDTH//2, HEIGHT//2)
+                    all_sprites.add(portal)
+            # Если второй босс (Boss2) погиб:
             if boss and isinstance(boss, Boss2) and not boss.alive():
                 end_sequence()
                 return
@@ -530,18 +541,8 @@ def game():
             clock.tick(60)
 
         else:
-            screen.fill((0, 0, 0))
-            game_over_text = font.render("Game Over", True, (255, 0, 0))
-            text_rect = game_over_text.get_rect(center=(WIDTH/2, HEIGHT/2 - 20))
-            screen.blit(game_over_text, text_rect)
-            restart_text = button_font.render("Нажмите 'R', чтобы играть заново", True, (255, 255, 255))
-            restart_rect = restart_text.get_rect(center=(WIDTH/2, HEIGHT/2 + 30))
-            screen.blit(restart_text, restart_rect)
-            pygame.display.flip()
-            keys = pygame.key.get_pressed()
-            if keys[pygame.K_r]:
-                restart_game = True
-                running = False
+            # Экран смерти с надписью "ПОМЕР" и двумя кнопками: "Играть заново" и "Меню"
+            death_screen()
 
     try:
         conn = sqlite3.connect("highscores.db")
@@ -561,6 +562,31 @@ def game():
     else:
         main_menu()
 
+def death_screen():
+    """Экран смерти с надписью 'ПОМЕР' и кнопками: 'Играть заново' (R) и 'Меню' (M)."""
+    waiting = True
+    while waiting:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                return
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_r:
+                    game()
+                    return
+                elif event.key == pygame.K_m:
+                    main_menu()
+                    return
+        screen.fill((0, 0, 0))
+        death_text = font.render("ПОМЕР", True, (255, 0, 0))
+        death_rect = death_text.get_rect(center=(WIDTH//2, HEIGHT//2 - 100))
+        screen.blit(death_text, death_rect)
+        option_text = button_font.render("Нажмите R для перезапуска или M для меню", True, (255, 255, 255))
+        option_rect = option_text.get_rect(center=(WIDTH//2, HEIGHT//2))
+        screen.blit(option_text, option_rect)
+        pygame.display.flip()
+        clock.tick(60)
+
 def show_best_score():
     try:
         conn = sqlite3.connect("highscores.db")
@@ -572,7 +598,6 @@ def show_best_score():
     except Exception as e:
         print("Error loading score:", e)
         result = None
-
     running = True
     while running:
         for event in pygame.event.get():
@@ -652,7 +677,7 @@ def main_menu():
                 mouse_pos = event.pos
                 if play_button_rect.collidepoint(mouse_pos):
                     battlefield_description()
-                    loading_screen()  # Экран загрузки перед игрой
+                    loading_screen()  # Экран загрузки
                     game()
                 elif score_button_rect.collidepoint(mouse_pos):
                     show_best_score()
@@ -680,4 +705,3 @@ def main_menu():
 
 if __name__ == "__main__":
     main_menu()
-

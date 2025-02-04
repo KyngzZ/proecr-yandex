@@ -14,9 +14,9 @@ clock = pygame.time.Clock()
 font = pygame.font.Font(None, 74)
 button_font = pygame.font.Font(None, 36)
 
-# Глобальная переменная для телепортации (переход после босса 1)
+# Глобальная переменная для телепортации (переход после первого босса)
 teleported = False
-boss_spawned = False  # Флаг, показывающий, что первый босс уже был заспавнен
+boss_spawned = False  # Флаг для первого босса, чтобы он спавнился только один раз
 
 # --- Классы игры ---
 
@@ -195,6 +195,9 @@ class Boss2(pygame.sprite.Sprite):
         self.last_attack_time = pygame.time.get_ticks()
         self.bullet_group = pygame.sprite.Group()
 
+    def is_alive(self):
+        return self.health > 0
+
     def update(self):
         now = pygame.time.get_ticks()
         if now - self.last_attack_time > 2000:
@@ -217,7 +220,7 @@ class Boss2(pygame.sprite.Sprite):
         pygame.draw.rect(screen, (0, 255, 0), (WIDTH // 2 - 150, 20, 300 * health_ratio, 20))
 
 class BlackHole(pygame.sprite.Sprite):
-    # После смерти первого босса, портал для телепортации
+    # После смерти первого босса – портал для телепортации
     def __init__(self, x, y):
         super().__init__()
         self.image = pygame.Surface((100, 100), pygame.SRCALPHA)
@@ -264,7 +267,7 @@ def setup_wave(wave, location="default"):
         enemy = Enemy()
         all_sprites.add(enemy)
         enemies_group.add(enemy)
-    # Генерация блоков без наложения на игроков и портал
+    # Генерация блоков без наложения на игроков и портал (если он есть)
     for i in range(5):
         placed = False
         attempts = 0
@@ -524,14 +527,14 @@ def game():
             if not player1.is_alive() and not player2.is_alive():
                 game_over = True
 
-            # Логика появления волн, портала и боссов:
+            # Логика волн и появления объектов:
             if len(enemies) == 0:
                 if wave < 5:
                     if portal is None:
                         portal = Portal(WIDTH//2, HEIGHT//2)
                         all_sprites.add(portal)
                 elif wave == 5:
-                    # Спавним первого босса только один раз
+                    # Спавним первого босса только один раз на волне 5
                     if not boss_spawned:
                         if boss is None:
                             boss = Boss()
@@ -672,7 +675,7 @@ def battlefield_description():
 
 def main_menu():
     try:
-        bg = pygame.image.load("background.jpg")
+        bg = pygame.image.load("background.jpg").convert()
         bg = pygame.transform.scale(bg, (WIDTH, HEIGHT))
     except Exception as e:
         print("Background image not found, using plain background.", e)
@@ -718,4 +721,3 @@ def main_menu():
 
 if __name__ == "__main__":
     main_menu()
-
